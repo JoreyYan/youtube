@@ -24,7 +24,11 @@
       "Bash(git branch:*)",
       "Bash(git remote add:*)",
       "Bash(git push:*)",
-      "Bash(git remote remove:*)"
+      "Bash(git remote remove:*)",
+      "Bash(pip install:*)",
+      "Bash(findstr:*)",
+      "Bash(del nul)",
+      "Bash(del video_understanding_enginenul)"
     ],
     "deny": [],
     "ask": []

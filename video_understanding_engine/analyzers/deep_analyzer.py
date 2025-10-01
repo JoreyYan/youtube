@@ -109,6 +109,8 @@ class DeepAnalyzer:
                 narrative_segments.append(segment)
             except Exception as e:
                 logger.error(f"片段{seg_meta.segment_num}分析失败: {e}")
+                logger.error(f"异常类型: {type(e).__name__}")
+                logger.error(f"异常详情", exc_info=True)
                 continue
 
         logger.info(f"批量分析完成，成功{len(narrative_segments)}/{len(segment_metas)}个")
@@ -141,6 +143,10 @@ class DeepAnalyzer:
         # 调用API
         response = self.client.call(prompt, max_tokens=4000)
 
+        # DEBUG: 记录原始响应
+        logger.debug(f"AI原始响应（前500字符）: {response[:500]}")
+        logger.debug(f"响应长度: {len(response)}字符")
+
         # 解析响应
         analysis_result = self._parse_ai_response(response)
 
@@ -164,18 +170,30 @@ class DeepAnalyzer:
             # 清理JSON字符串
             json_str = json_str.strip()
 
+            # 额外清理：移除可能的前导/尾随空白字符和换行
+            # 移除JSON外部的任何说明文字（例如：这里是JSON: {...}）
+            json_str = re.sub(r'^[^\{]*', '', json_str)  # 移除首个{之前的内容
+            json_str = re.sub(r'[^\}]*$', '', json_str)  # 移除最后一个}之后的内容
+
             # 解析JSON
             analysis_result = json.loads(json_str)
+
+            # DEBUG: 验证解析结果
+            logger.debug(f"JSON解析成功，包含键: {list(analysis_result.keys())}")
+            logger.debug(f"title值类型: {type(analysis_result.get('title'))}")
+            logger.debug(f"title值内容: {repr(analysis_result.get('title', 'N/A')[:100])}")
 
             return analysis_result
 
         except json.JSONDecodeError as e:
             logger.error(f"JSON解析失败: {e}")
-            logger.error(f"JSON内容预览: {json_str[:200] if 'json_str' in locals() else response[:200]}")
+            logger.error(f"JSON内容预览: {json_str[:500] if 'json_str' in locals() else response[:500]}")
+            logger.error(f"完整响应长度: {len(response)}字符")
             # 返回默认结构
             return self._get_default_analysis()
         except Exception as e:
             logger.error(f"解析AI响应失败: {e}")
+            logger.error(f"响应预览: {response[:500]}")
             # 返回默认结构
             return self._get_default_analysis()
 

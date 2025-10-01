@@ -5,6 +5,10 @@
 
 import sys
 from pathlib import Path
+import logging
+
+# 启用DEBUG级别日志
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))

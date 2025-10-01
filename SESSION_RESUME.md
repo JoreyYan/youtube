@@ -32,12 +32,14 @@
    - 向量插入和搜索
    - 测试通过
 
-**待实现:**
-4. ⏳ **SemanticSearchEngine** (`searchers/`)
+4. ✅ **SemanticSearchEngine** (`searchers/`)
    - 自然语言查询
    - 多维度过滤
    - 相似度搜索
+   - 混合搜索（语义+关键词）
+   - 测试通过
 
+**待实现:**
 5. ⏳ **Pipeline集成** (`pipeline/video_processor_v3.py`)
    - 将向量化集成到处理流程
    - 自动生成和存储向量
@@ -50,8 +52,8 @@
 
 按照 `docs/PHASE2_VECTOR_SEARCH_PLAN.md` 继续：
 
-1. 实现 `searchers/semantic_search.py`
-2. 编写测试 `scripts/test_semantic_search.py`
+1. ✅ 实现 `searchers/semantic_search.py`
+2. ✅ 编写测试 `scripts/test_semantic_search.py`
 3. 创建 `pipeline/video_processor_v3.py`
 4. 端到端测试
 5. 提交代码
@@ -60,11 +62,13 @@
 
 - **规划文档**: `docs/PHASE2_VECTOR_SEARCH_PLAN.md`
 - **已实现模块**:
-  - `embedders/embedding_generator.py` (200行)
-  - `vectorstores/qdrant_store.py` (280行)
+  - `embedders/embedding_generator.py` (216行)
+  - `vectorstores/qdrant_store.py` (334行)
+  - `searchers/semantic_search.py` (400+行)
 - **测试脚本**:
   - `scripts/test_embedding_generator.py` ✅
   - `scripts/test_vector_store.py` ✅
+  - `scripts/test_semantic_search.py` ✅
 - **测试数据**: `data/output_semantic_test/`
 
 ## API Keys

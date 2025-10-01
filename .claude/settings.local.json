@@ -28,7 +28,9 @@
       "Bash(pip install:*)",
       "Bash(findstr:*)",
       "Bash(del nul)",
-      "Bash(del video_understanding_enginenul)"
+      "Bash(del video_understanding_enginenul)",
+      "Bash(mkdir:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []

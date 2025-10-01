@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频原子化结果查看器</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 标题 -->
+        <header>
+            <h1>🎬 视频原子化结果查看器</h1>
+            <p class="subtitle">金三角大佬4 - 前30分钟分析结果</p>
+        </header>
+
+        <!-- 统计概览 -->
+        <section class="stats-overview">
+            <div class="stat-card">
+                <div class="stat-label">总原子数</div>
+                <div class="stat-value" id="total-atoms">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">处理时长</div>
+                <div class="stat-value" id="duration">30分钟</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">API成本</div>
+                <div class="stat-value" id="cost">-</div>
+            </div>
+            <div class="stat-card quality">
+                <div class="stat-label">质量评分</div>
+                <div class="stat-value" id="quality">-</div>
+            </div>
+        </section>
+
+        <!-- 类型分布 -->
+        <section class="type-distribution">
+            <h2>📊 类型分布</h2>
+            <div id="type-chart" class="chart"></div>
+        </section>
+
+        <!-- 筛选器 -->
+        <section class="filters">
+            <div class="filter-group">
+                <label>类型筛选：</label>
+                <select id="type-filter">
+                    <option value="all">所有类型</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>时长筛选：</label>
+                <select id="duration-filter">
+                    <option value="all">全部</option>
+                    <option value="short">短片段 (&lt;30秒)</option>
+                    <option value="medium">中等片段 (30秒-5分钟)</option>
+                    <option value="long">长片段 (&gt;5分钟)</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>搜索：</label>
+                <input type="text" id="search-input" placeholder="搜索文本内容...">
+            </div>
+        </section>
+
+        <!-- 时间轴 -->
+        <section class="timeline">
+            <h2>⏱️ 时间轴</h2>
+            <div id="timeline-container" class="timeline-bar"></div>
+        </section>
+
+        <!-- 原子列表 -->
+        <section class="atoms-list">
+            <h2>📝 原子列表 (<span id="filtered-count">0</span> 个)</h2>
+            <div id="atoms-container"></div>
+
+            <!-- 分页 -->
+            <div class="pagination">
+                <button id="prev-page" class="page-btn">← 上一页</button>
+                <span id="page-info">第 1 页 / 共 1 页</span>
+                <button id="next-page" class="page-btn">下一页 →</button>
+            </div>
+        </section>
+    </div>
+
+    <!-- 详情弹窗 -->
+    <div id="detail-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2 id="modal-title">原子详情</h2>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

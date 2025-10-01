@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(venvScriptspip install -r requirements.txt)",
+      "Bash(.venvScriptspip.exe install -r requirements.txt)",
+      "Bash(copy:*)",
+      "Bash(npx create-next-app:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npx shadcn@latest init:*)",
+      "Bash(npm install:*)",
+      "Bash(npx shadcn@latest add:*)",
+      "Bash(node:*)",
+      "Read(//d/**)",
+      "Bash(dir:*)",
+      "Bash(timeout:*)",
+      "Bash(cat:*)",
+      "Bash(xcopy:*)",
+      "Bash(powershell:*)",
+      "Bash(test:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

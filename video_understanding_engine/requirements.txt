@@ -1,0 +1,22 @@
+# AI API
+anthropic>=0.18.0
+openai>=1.0.0
+
+# 向量数据库
+chromadb>=0.4.0
+
+# 字幕处理
+srt==3.5.0
+
+# 数据模型和验证
+pydantic>=1.10.0,<3.0.0
+
+# 图谱
+networkx>=3.1
+
+# 工具
+rich>=13.0.0
+python-dotenv>=1.0.0
+
+# 测试
+pytest>=7.4.0

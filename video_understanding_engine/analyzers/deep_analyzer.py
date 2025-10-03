@@ -124,8 +124,8 @@ class DeepAnalyzer:
             texts.append(atom.merged_text)
         return "\n\n".join(texts)
 
-    def _call_ai_analysis(self, full_text: str, segment_meta: SegmentMeta) -> Dict[str, Any]:
-        """调用AI进行综合分析"""
+    def _call_ai_analysis(self, full_text: str, segment_meta: SegmentMeta, max_retries: int = 3) -> Dict[str, Any]:
+        """调用AI进行综合分析（带重试）"""
         # 构建上下文信息
         context = {
             "segment_num": segment_meta.segment_num,
@@ -134,67 +134,129 @@ class DeepAnalyzer:
             "end_time": segment_meta.end_time
         }
 
-        # 构建提示词
-        prompt = self.prompt_template.format(
-            CONTEXT=json.dumps(context, ensure_ascii=False),
-            FULL_TEXT=full_text
+        # 构建提示词 - 使用简单替换避免format()解析JSON示例
+        prompt = self.prompt_template.replace(
+            '{CONTEXT}', json.dumps(context, ensure_ascii=False)
+        ).replace(
+            '{FULL_TEXT}', full_text
         )
 
-        # 调用API
-        response = self.client.call(prompt, max_tokens=4000)
+        # 重试机制
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"  [API调用] 尝试 {attempt + 1}/{max_retries}")
 
-        # DEBUG: 记录原始响应
-        logger.debug(f"AI原始响应（前500字符）: {response[:500]}")
-        logger.debug(f"响应长度: {len(response)}字符")
+                # 调用API
+                response = self.client.call(prompt, max_tokens=4000)
 
-        # 解析响应
-        analysis_result = self._parse_ai_response(response)
+                # DEBUG: 记录原始响应
+                logger.debug(f"AI原始响应（前500字符）: {response[:500]}")
+                logger.debug(f"响应长度: {len(response)}字符")
 
-        return analysis_result
+                # 解析响应
+                analysis_result = self._parse_ai_response(response)
+
+                # 如果成功解析且不是默认值，返回结果
+                if analysis_result.get('title') != "未命名片段":
+                    logger.info(f"  [成功] 第 {attempt + 1} 次尝试成功")
+                    return analysis_result
+                else:
+                    logger.warning(f"  [警告] 第 {attempt + 1} 次尝试返回默认值，重试中...")
+                    last_error = ValueError("API返回默认分析结果")
+
+            except json.JSONDecodeError as e:
+                last_error = e
+                logger.warning(f"  [JSON错误] 第 {attempt + 1} 次尝试失败: {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"  [重试] 等待后重试...")
+                    continue
+            except Exception as e:
+                last_error = e
+                logger.error(f"  [错误] 第 {attempt + 1} 次尝试失败: {type(e).__name__}: {e}")
+                if attempt < max_retries - 1:
+                    continue
+
+        # 所有重试都失败，返回默认值
+        logger.error(f"  [失败] {max_retries} 次尝试全部失败，使用默认值")
+        logger.error(f"  [最后错误] {type(last_error).__name__}: {last_error}")
+        return self._get_default_analysis()
 
     def _parse_ai_response(self, response: str) -> Dict[str, Any]:
-        """解析AI响应"""
+        """解析AI响应 - 增强容错"""
         try:
-            # 尝试多种方式提取JSON
+            json_str = None
+
             # 方法1: 查找```json代码块
             json_block_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
             if json_block_match:
-                json_str = json_block_match.group(1)
-            else:
-                # 方法2: 查找第一个{到最后一个}
+                json_str = json_block_match.group(1).strip()
+                logger.debug("使用方法1: 找到```json代码块")
+
+            # 方法2: 查找```代码块（不带json标记）
+            if not json_str:
+                json_block_match = re.search(r'```\s*(.*?)\s*```', response, re.DOTALL)
+                if json_block_match:
+                    content = json_block_match.group(1).strip()
+                    # 检查是否以{开头
+                    if content.startswith('{'):
+                        json_str = content
+                        logger.debug("使用方法2: 找到```代码块")
+
+            # 方法3: 查找第一个{到最后一个}
+            if not json_str:
                 json_match = re.search(r'\{.*\}', response, re.DOTALL)
-                if not json_match:
-                    raise ValueError("响应中未找到JSON对象")
-                json_str = json_match.group(0)
+                if json_match:
+                    json_str = json_match.group(0).strip()
+                    logger.debug("使用方法3: 提取{...}内容")
+
+            # 如果都失败，抛出错误
+            if not json_str:
+                raise ValueError("响应中未找到JSON对象")
 
             # 清理JSON字符串
-            json_str = json_str.strip()
+            json_str = self._clean_json_string(json_str)
 
-            # 额外清理：移除可能的前导/尾随空白字符和换行
-            # 移除JSON外部的任何说明文字（例如：这里是JSON: {...}）
-            json_str = re.sub(r'^[^\{]*', '', json_str)  # 移除首个{之前的内容
-            json_str = re.sub(r'[^\}]*$', '', json_str)  # 移除最后一个}之后的内容
+            # 记录JSON前100字符用于调试
+            logger.debug(f"JSON前100字符: {json_str[:100]}")
+            logger.debug(f"JSON长度: {len(json_str)}")
 
             # 解析JSON
             analysis_result = json.loads(json_str)
 
-            # DEBUG: 验证解析结果
+            # 验证必需字段
+            required_fields = ['title', 'summary', 'narrative_structure', 'topics',
+                             'entities', 'content_facet', 'ai_analysis',
+                             'importance_score', 'quality_score']
+
+            missing_fields = [f for f in required_fields if f not in analysis_result]
+            if missing_fields:
+                logger.warning(f"缺少字段: {missing_fields}")
+                # 补充默认值
+                defaults = self._get_default_analysis()
+                for field in missing_fields:
+                    analysis_result[field] = defaults.get(field)
+
             logger.debug(f"JSON解析成功，包含键: {list(analysis_result.keys())}")
-            logger.debug(f"title值类型: {type(analysis_result.get('title'))}")
-            logger.debug(f"title值内容: {repr(analysis_result.get('title', 'N/A')[:100])}")
+            logger.debug(f"title: {analysis_result.get('title', 'N/A')[:50]}")
 
             return analysis_result
 
         except json.JSONDecodeError as e:
             logger.error(f"JSON解析失败: {e}")
-            logger.error(f"JSON内容预览: {json_str[:500] if 'json_str' in locals() else response[:500]}")
-            logger.error(f"完整响应长度: {len(response)}字符")
-            # 返回默认结构
+            logger.error(f"错误位置: line {e.lineno}, column {e.colno}")
+            if 'json_str' in locals():
+                # 显示出错位置附近的内容
+                start = max(0, e.pos - 100)
+                end = min(len(json_str), e.pos + 100)
+                logger.error(f"出错附近内容: ...{json_str[start:end]}...")
+            else:
+                logger.error(f"响应预览: {response[:500]}")
             return self._get_default_analysis()
         except Exception as e:
-            logger.error(f"解析AI响应失败: {e}")
-            logger.error(f"响应预览: {response[:500]}")
-            # 返回默认结构
+            logger.error(f"解析AI响应失败: {type(e).__name__}: {e}")
+            logger.error(f"响应长度: {len(response)}")
+            logger.error(f"响应前500字符: {response[:500]}")
             return self._get_default_analysis()
 
     def _build_narrative_segment(
@@ -304,6 +366,35 @@ class DeepAnalyzer:
             "importance_score": 0.5,
             "quality_score": 0.5
         }
+
+    def _clean_json_string(self, json_str: str) -> str:
+        """清理JSON字符串，移除常见的格式问题"""
+        # 移除BOM和零宽字符
+        json_str = json_str.replace('\ufeff', '')
+        json_str = json_str.replace('\u200b', '')
+        json_str = json_str.replace('\u200c', '')
+        json_str = json_str.replace('\u200d', '')
+
+        # 移除可能的前后空白
+        json_str = json_str.strip()
+
+        # 修复常见的JSON格式问题
+        # 1. 修复缺少逗号的问题（例如："key": "value"\n  "key2":）
+        json_str = re.sub(r'"\s*\n\s*"', '",\n  "', json_str)
+
+        # 2. 修复中文引号
+        json_str = json_str.replace('"', '"').replace('"', '"')
+        json_str = json_str.replace(''', "'").replace(''', "'")
+
+        # 3. 移除JavaScript风格的注释
+        json_str = re.sub(r'//.*?\n', '\n', json_str)
+        json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)
+
+        # 4. 修复行尾多余的逗号（JSON不允许）
+        json_str = re.sub(r',\s*}', '}', json_str)
+        json_str = re.sub(r',\s*]', ']', json_str)
+
+        return json_str
 
     def _get_default_prompt(self) -> str:
         """获取默认提示词（如果文件不存在）"""

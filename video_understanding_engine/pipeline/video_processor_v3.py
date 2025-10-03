@@ -20,6 +20,11 @@ from parsers import SRTParser, Cleaner
 from atomizers import Atomizer, AtomValidator, OverlapFixer
 from structurers import SegmentIdentifier
 from analyzers import DeepAnalyzer
+from analyzers.entity_extractor import EntityExtractor
+from analyzers.topic_network_builder import TopicNetworkBuilder
+from analyzers.knowledge_graph_builder import KnowledgeGraphBuilder
+from analyzers.structure_report_generator import StructureReportGenerator
+from analyzers.creative_angle_analyzer import CreativeAngleAnalyzer
 from embedders.embedding_generator import EmbeddingGenerator
 from vectorstores.qdrant_store import QdrantVectorStore
 from searchers.semantic_search import SemanticSearchEngine
@@ -197,10 +202,23 @@ class VideoProcessorV3:
                     'total_api_calls': len(segment_metas) * 2
                 }
 
-        # Step 6: 向量化（新增）
+        # Step 6: 向量化
         vector_stats = {}
         if self.config.enable_vectorization:
             vector_stats = self._vectorize(atoms, narrative_segments)
+
+        # Step 7: 构建知识索引（实体、主题、图谱）
+        index_stats = {}
+        entities_data = {}
+        topics_data = {}
+        graph_data = {}
+        if len(narrative_segments) > 0:
+            index_stats, entities_data, topics_data, graph_data = self._build_knowledge_indexes(narrative_segments, atoms)
+
+        # Step 8: 生成理解展示层报告
+        report_stats = {}
+        if len(narrative_segments) > 0 and entities_data:
+            report_stats = self._generate_reports(atoms, narrative_segments, entities_data, topics_data, graph_data)
 
         # 保存结果
         stats = self._save_results(atoms, report, narrative_segments, utterances)
@@ -210,6 +228,10 @@ class VideoProcessorV3:
             stats['semantic'] = semantic_stats
         if vector_stats:
             stats['vector'] = vector_stats
+        if index_stats:
+            stats['index'] = index_stats
+        if report_stats:
+            stats['reports'] = report_stats
 
         # 添加处理时间
         elapsed_time = time.time() - start_time
@@ -489,6 +511,96 @@ class VideoProcessorV3:
         }
 
         return stats
+
+    def _build_knowledge_indexes(self, narrative_segments: List[NarrativeSegment], atoms: List[Atom]):
+        """构建知识索引（实体、主题、图谱）"""
+        print("\n[7/7] 构建知识索引...")
+
+        # 实体提取
+        entity_extractor = EntityExtractor()
+        entities = entity_extractor.extract(narrative_segments, atoms)
+        entity_path = self.output_path / "entities.json"
+        entity_extractor.save(entities, entity_path)
+        print(f"  [OK] 实体聚合完成: {entities['statistics']['total_entities']}个实体")
+
+        # 主题网络
+        topic_builder = TopicNetworkBuilder()
+        topics = topic_builder.build(narrative_segments)
+        topic_path = self.output_path / "topics.json"
+        topic_builder.save(topics, topic_path)
+        print(f"  [OK] 主题网络完成: {topics['statistics']['total_primary_topics']}个主题")
+
+        # 知识图谱
+        graph_builder = KnowledgeGraphBuilder()
+        graph = graph_builder.build(narrative_segments, entities, topics)
+        graph_path = self.output_path / "indexes" / "graph.json"
+        graph_builder.save(graph, graph_path)
+        print(f"  [OK] 知识图谱完成: {graph['statistics']['total_nodes']}个节点, {graph['statistics']['total_edges']}条边")
+
+        stats = {
+            'entity_count': entities['statistics']['total_entities'],
+            'topic_count': topics['statistics']['total_primary_topics'],
+            'graph_nodes': graph['statistics']['total_nodes'],
+            'graph_edges': graph['statistics']['total_edges']
+        }
+
+        return stats, entities, topics, graph
+
+    def _generate_reports(
+        self,
+        atoms: List[Atom],
+        narrative_segments: List[NarrativeSegment],
+        entities: dict,
+        topics: dict,
+        graph: dict
+    ) -> dict:
+        """生成理解展示层报告"""
+        print("\n[8/8] 生成理解展示层报告...")
+
+        # 读取验证报告
+        validation_path = self.output_path / "validation.json"
+        validation = {}
+        if validation_path.exists():
+            import json
+            with open(validation_path, 'r', encoding='utf-8') as f:
+                validation = json.load(f)
+
+        # 1. 生成视频结构报告
+        report_generator = StructureReportGenerator()
+        structure_report = report_generator.generate(
+            atoms=atoms,
+            segments=narrative_segments,
+            entities=entities,
+            topics=topics,
+            validation=validation
+        )
+        report_path = self.output_path / "video_structure.md"
+        report_generator.save(structure_report, report_path)
+        print(f"  [OK] 视频结构报告: video_structure.md")
+
+        # 2. 生成创作角度分析
+        angle_analyzer = CreativeAngleAnalyzer()
+        creative_angles = angle_analyzer.analyze(
+            atoms=atoms,
+            segments=narrative_segments,
+            entities=entities,
+            topics=topics,
+            graph=graph
+        )
+        angle_path = self.output_path / "creative_angles.json"
+        angle_analyzer.save(creative_angles, angle_path)
+        print(f"  [OK] 创作角度分析: creative_angles.json")
+
+        # 统计信息
+        clip_count = len(creative_angles.get('clip_recommendations', []))
+        angle_count = len(creative_angles.get('content_angles', []))
+
+        return {
+            'structure_report_generated': True,
+            'creative_angles_generated': True,
+            'clip_recommendations': clip_count,
+            'content_angles': angle_count
+        }
 
     def _print_summary(
         self,

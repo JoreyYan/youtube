@@ -25,6 +25,7 @@ from analyzers.topic_network_builder import TopicNetworkBuilder
 from analyzers.knowledge_graph_builder import KnowledgeGraphBuilder
 from analyzers.structure_report_generator import StructureReportGenerator
 from analyzers.creative_angle_analyzer import CreativeAngleAnalyzer
+from analyzers.atom_annotator import AtomAnnotator
 from embedders.embedding_generator import EmbeddingGenerator
 from vectorstores.qdrant_store import QdrantVectorStore
 from searchers.semantic_search import SemanticSearchEngine
@@ -56,6 +57,9 @@ class PipelineConfig:
         enable_semantic_analysis: bool = True,
         identify_narrative_segments: bool = True,
         deep_analyze_segments: bool = True,
+        # 标注配置（新增）
+        enable_atom_annotation: bool = True,
+        annotation_batch_size: int = 10,
         # 向量化配置（新增）
         enable_vectorization: bool = True,
         embedding_model: str = 'text-embedding-3-small',
@@ -81,6 +85,8 @@ class PipelineConfig:
         self.enable_semantic_analysis = enable_semantic_analysis
         self.identify_narrative_segments = identify_narrative_segments
         self.deep_analyze_segments = deep_analyze_segments
+        self.enable_atom_annotation = enable_atom_annotation
+        self.annotation_batch_size = annotation_batch_size
         self.enable_vectorization = enable_vectorization
         self.embedding_model = embedding_model
         self.vector_store_path = vector_store_path
@@ -202,12 +208,21 @@ class VideoProcessorV3:
                     'total_api_calls': len(segment_metas) * 2
                 }
 
-        # Step 6: 向量化
+        # Step 6: 原子级别语义标注
+        annotation_stats = {}
+        atom_annotations = []
+        if self.config.enable_atom_annotation:
+            print("\n" + "="*70)
+            print("原子语义标注阶段")
+            print("="*70)
+            annotation_stats, atom_annotations = self._annotate_atoms(atoms, narrative_segments)
+
+        # Step 7: 向量化
         vector_stats = {}
         if self.config.enable_vectorization:
             vector_stats = self._vectorize(atoms, narrative_segments)
 
-        # Step 7: 构建知识索引（实体、主题、图谱）
+        # Step 8: 构建知识索引（实体、主题、图谱）
         index_stats = {}
         entities_data = {}
         topics_data = {}
@@ -215,7 +230,7 @@ class VideoProcessorV3:
         if len(narrative_segments) > 0:
             index_stats, entities_data, topics_data, graph_data = self._build_knowledge_indexes(narrative_segments, atoms)
 
-        # Step 8: 生成理解展示层报告
+        # Step 9: 生成理解展示层报告
         report_stats = {}
         if len(narrative_segments) > 0 and entities_data:
             report_stats = self._generate_reports(atoms, narrative_segments, entities_data, topics_data, graph_data)
@@ -226,6 +241,8 @@ class VideoProcessorV3:
         # 合并统计信息
         if semantic_stats:
             stats['semantic'] = semantic_stats
+        if annotation_stats:
+            stats['annotation'] = annotation_stats
         if vector_stats:
             stats['vector'] = vector_stats
         if index_stats:
@@ -243,6 +260,7 @@ class VideoProcessorV3:
             'atoms': atoms,
             'report': report,
             'narrative_segments': narrative_segments,
+            'atom_annotations': atom_annotations,  # 新增：原子标注结果
             'stats': stats,
             'elapsed_time': elapsed_time,
             'overlaps_fixed': overlaps_fixed,
@@ -251,7 +269,7 @@ class VideoProcessorV3:
 
     def _parse_and_clean(self) -> List[Utterance]:
         """解析和清洗字幕"""
-        print("\n[1/7] 解析和清洗...")
+        print("\n[1/9] 解析和清洗...")
         parser = SRTParser()
         utterances = parser.parse(self.config.input_srt_path)
         print(f"  解析完成：{len(utterances)}条字幕")
@@ -264,7 +282,7 @@ class VideoProcessorV3:
 
     def _atomize(self, utterances: List[Utterance]) -> List[Atom]:
         """原子化"""
-        print("\n[2/7] 原子化...")
+        print("\n[2/9] 原子化...")
 
         checkpoint_id = "whole_video_v3" if self.config.use_checkpoint else None
         atomizer = Atomizer(
@@ -285,7 +303,7 @@ class VideoProcessorV3:
 
     def _fix_overlaps(self, atoms: List[Atom]) -> tuple[List[Atom], int]:
         """修复时间重叠"""
-        print("\n[3/7] 修复时间重叠...")
+        print("\n[3/9] 修复时间重叠...")
 
         if self.config.fix_overlap:
             fixer = OverlapFixer(strategy=self.config.overlap_strategy)
@@ -331,9 +349,94 @@ class VideoProcessorV3:
 
         return narrative_segments
 
+    def _annotate_atoms(self, atoms: List[Atom], narrative_segments: List[NarrativeSegment]) -> tuple[dict, list]:
+        """原子级别语义标注"""
+        from models.entity_index import AtomAnnotation
+
+        print("\n[7/9] 原子语义标注...")
+
+        # 初始化标注器
+        annotator = AtomAnnotator(self.api_key)
+
+        # 按叙事段落组织原子进行标注
+        all_annotations = []
+        annotation_stats = {
+            'total_atoms': len(atoms),
+            'annotated_atoms': 0,
+            'entities_found': 0,
+            'topics_found': 0,
+            'avg_importance': 0.0,
+            'failed_atoms': 0
+        }
+
+        if narrative_segments:
+            # 按段落标注
+            for segment in narrative_segments:
+                print(f"  标注段落 {segment.segment_id}...")
+
+                # 获取段落内的原子
+                segment_atom_ids = set(segment.atoms)
+                segment_atoms = [atom for atom in atoms if atom.atom_id in segment_atom_ids]
+
+                if segment_atoms:
+                    try:
+                        # 批量标注段落内的原子
+                        segment_annotations = annotator.annotate_atoms_batch(
+                            segment_atoms,
+                            segment_id=segment.segment_id,
+                            batch_size=self.config.annotation_batch_size
+                        )
+                        all_annotations.extend(segment_annotations)
+
+                        # 更新统计
+                        annotation_stats['annotated_atoms'] += len(segment_annotations)
+
+                        # 统计实体和主题
+                        for annotation in segment_annotations:
+                            if annotation.entities:
+                                annotation_stats['entities_found'] += len(annotation.entities)
+                            if annotation.topics:
+                                annotation_stats['topics_found'] += len(annotation.topics)
+
+                        print(f"    完成 {len(segment_annotations)} 个原子")
+
+                    except Exception as e:
+                        logger.error(f"段落 {segment.segment_id} 标注失败: {e}")
+                        annotation_stats['failed_atoms'] += len(segment_atoms)
+        else:
+            # 无段落时，直接标注所有原子
+            print("  标注全部原子...")
+            try:
+                all_annotations = annotator.annotate_atoms_batch(
+                    atoms,
+                    batch_size=self.config.annotation_batch_size
+                )
+                annotation_stats['annotated_atoms'] = len(all_annotations)
+            except Exception as e:
+                logger.error(f"原子标注失败: {e}")
+                annotation_stats['failed_atoms'] = len(atoms)
+
+        # 计算平均重要性
+        if all_annotations:
+            importance_scores = [ann.importance_score for ann in all_annotations]
+            annotation_stats['avg_importance'] = sum(importance_scores) / len(importance_scores)
+
+        # 保存标注结果
+        if all_annotations:
+            annotations_file = self.output_path / "atom_annotations.json"
+            annotator.save_annotations(all_annotations, annotations_file)
+            print(f"  [OK] 标注数据已保存: atom_annotations.json")
+
+        print(f"  标注完成: {annotation_stats['annotated_atoms']}/{annotation_stats['total_atoms']} 个原子")
+        print(f"  发现实体: {annotation_stats['entities_found']} 个")
+        print(f"  发现主题: {annotation_stats['topics_found']} 个")
+        print(f"  平均重要性: {annotation_stats['avg_importance']:.3f}")
+
+        return annotation_stats, all_annotations
+
     def _vectorize(self, atoms: List[Atom], narrative_segments: List[NarrativeSegment]) -> dict:
         """向量化原子和片段"""
-        print("\n[7/7] 向量化...")
+        print("\n[8/9] 向量化...")
 
         vector_stats = {
             'atoms_vectorized': 0,
@@ -514,7 +617,7 @@ class VideoProcessorV3:
 
     def _build_knowledge_indexes(self, narrative_segments: List[NarrativeSegment], atoms: List[Atom]):
         """构建知识索引（实体、主题、图谱）"""
-        print("\n[7/7] 构建知识索引...")
+        print("\n[9/9] 构建知识索引...")
 
         # 实体提取
         entity_extractor = EntityExtractor()
@@ -533,7 +636,7 @@ class VideoProcessorV3:
         # 知识图谱
         graph_builder = KnowledgeGraphBuilder()
         graph = graph_builder.build(narrative_segments, entities, topics)
-        graph_path = self.output_path / "indexes" / "graph.json"
+        graph_path = self.output_path / "knowledge_graph.json"  # 修正路径
         graph_builder.save(graph, graph_path)
         print(f"  [OK] 知识图谱完成: {graph['statistics']['total_nodes']}个节点, {graph['statistics']['total_edges']}条边")
 
@@ -555,7 +658,7 @@ class VideoProcessorV3:
         graph: dict
     ) -> dict:
         """生成理解展示层报告"""
-        print("\n[8/8] 生成理解展示层报告...")
+        print("\n[后处理] 生成理解展示层报告...")
 
         # 读取验证报告
         validation_path = self.output_path / "validation.json"

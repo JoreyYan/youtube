@@ -3,7 +3,7 @@ NarrativeSegment模型 - 叙事片段（Level 2核心层）
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 
 class NarrativeStructure(BaseModel):
@@ -51,7 +51,7 @@ class NarrativeSegment(BaseModel):
 
     segment_id: str = Field(..., description="片段ID，如 SEG_001")
     title: str = Field(..., description="片段标题（AI生成）")
-    atoms: List[str] = Field(..., description="包含的原子ID列表")
+    atoms: List[Union[str, int]] = Field(..., description="包含的原子ID列表（支持字符串ID或整数索引）")
 
     # 时间信息
     start_ms: int = Field(..., description="开始时间（毫秒）")
@@ -175,7 +175,7 @@ class NarrativeSegment(BaseModel):
 class SegmentMeta(BaseModel):
     """片段元数据（用于识别阶段）"""
     segment_num: int = Field(..., description="片段序号")
-    atoms: List[str] = Field(..., description="包含的原子ID列表")
+    atoms: List[Union[str, int]] = Field(..., description="包含的原子ID列表（支持字符串ID或整数索引）")
     start_ms: int = Field(..., description="开始时间（毫秒）")
     end_ms: int = Field(..., description="结束时间（毫秒）")
     duration_ms: int = Field(..., description="持续时间（毫秒）")

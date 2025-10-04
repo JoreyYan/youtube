@@ -54,6 +54,9 @@ def main():
         enable_semantic_analysis=True,
         identify_narrative_segments=True,
         deep_analyze_segments=True,
+        # 原子标注配置
+        enable_atom_annotation=True,
+        annotation_batch_size=10,
         # 向量化配置
         enable_vectorization=True,
         embedding_model='text-embedding-3-small',

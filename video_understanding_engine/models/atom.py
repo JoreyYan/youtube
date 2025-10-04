@@ -19,10 +19,32 @@ class Atom(BaseModel):
     source_utterance_ids: List[int] = Field(default_factory=list, description="来源字幕ID列表")
 
     # 可选字段（后续阶段填充）
-    topics: Optional[Dict[str, Any]] = Field(None, description="主题标注")
-    emotion: Optional[Dict[str, Any]] = Field(None, description="情感标注")
+    topics: Optional[List[str]] = Field(None, description="主题标注列表")
+    emotion: Optional[Dict[str, Any]] = Field(None, description="情感标注: { type, score, confidence }")
     value: Optional[Dict[str, Any]] = Field(None, description="价值标注")
     embedding: Optional[List[float]] = Field(None, description="语义向量")
+
+    # 实体标注
+    entities: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="包含的实体: [{ name, type, confidence }]"
+    )
+
+    # 重要性评分
+    importance_score: Optional[float] = Field(None, description="重要性评分 0-1")
+    quality_score: Optional[float] = Field(None, description="内容质量评分 0-1")
+
+    # 状态标记
+    has_entity: Optional[bool] = Field(None, description="是否包含实体")
+    has_topic: Optional[bool] = Field(None, description="是否包含主题")
+    embedding_status: Optional[str] = Field(None, description="向量化状态: pending/completed/failed")
+
+    # 关联信息
+    parent_segment_id: Optional[str] = Field(None, description="所属时间段落ID (SEG_001, SEG_002...)")
+    parent_narrative_id: Optional[str] = Field(None, description="所属叙事段落ID (NARRATIVE_001...)")
+
+    # 上下文信息
+    context_entities: Optional[List[str]] = Field(None, description="上下文相关实体")
 
     @property
     def start_time(self) -> str:

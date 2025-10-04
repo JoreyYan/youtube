@@ -53,9 +53,8 @@ class DeepAnalyzer:
         """
         logger.info(f"分析片段 SEG_{segment_meta.segment_num:03d}")
 
-        # 提取该片段的原子
-        atoms_dict = {atom.atom_id: atom for atom in atoms}
-        segment_atoms = [atoms_dict[aid] for aid in segment_meta.atoms if aid in atoms_dict]
+        # 直接使用已经解析好的原子对象 - FIXED 2024-10-04
+        segment_atoms = atoms
 
         if len(segment_atoms) == 0:
             raise ValueError(f"片段{segment_meta.segment_num}没有有效原子")
@@ -395,6 +394,92 @@ class DeepAnalyzer:
         json_str = re.sub(r',\s*]', ']', json_str)
 
         return json_str
+
+    def analyze_segment_entities(self, text: str) -> Dict[str, Any]:
+        """
+        专门用于实体提取的方法
+
+        Args:
+            text: 待分析的文本
+
+        Returns:
+            包含实体信息的字典
+        """
+        # 构建专门的实体提取提示词
+        entity_prompt = """你是一个专业的中文实体识别专家。请从以下文本中准确提取实体，注意实体边界的准确性。
+
+【文本】
+{TEXT}
+
+【任务】
+请提取以下类型的实体，注意：
+1. **实体边界必须准确**，不要包含多余的字符
+2. **人名**：如"温哥华"应该是地名，"罗星汉"应该准确识别边界
+3. **地名**：城市、国家、地区名称
+4. **组织机构**：公司、政府部门、团体等
+5. **时间点**：具体时间、年份、日期等
+6. **事件**：历史事件、新闻事件等
+7. **概念术语**：专业术语、概念等
+
+【输出格式】
+请以JSON格式输出：
+```json
+{
+  "entities": {
+    "persons": ["人名1", "人名2"],
+    "countries": ["国家1", "地区1"],
+    "organizations": ["组织1", "机构1"],
+    "time_points": ["时间1", "时间2"],
+    "events": ["事件1", "事件2"],
+    "concepts": ["概念1", "术语1"]
+  }
+}
+```
+
+【输出】""".replace('{TEXT}', text)
+
+        try:
+            logger.info("开始AI实体提取")
+
+            # 调用AI进行实体提取
+            response = self.client.call(entity_prompt, max_tokens=2000)
+            logger.debug(f"实体提取AI响应（前300字符）: {response[:300]}")
+
+            # 解析响应
+            json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
+            if not json_match:
+                json_match = re.search(r'\{.*\}', response, re.DOTALL)
+
+            if json_match:
+                json_str = json_match.group(1) if json_match.group(0).startswith('```') else json_match.group(0)
+                json_str = self._clean_json_string(json_str)
+                result = json.loads(json_str)
+
+                # 验证结果结构
+                if 'entities' in result:
+                    logger.info(f"AI实体提取成功，提取实体类型: {list(result['entities'].keys())}")
+                    return result
+                else:
+                    logger.warning("AI响应格式不正确，缺少entities字段")
+
+        except json.JSONDecodeError as e:
+            logger.error(f"实体提取JSON解析失败: {e}")
+            logger.error(f"响应内容: {response[:500] if 'response' in locals() else 'None'}")
+        except Exception as e:
+            logger.error(f"AI实体提取失败: {type(e).__name__}: {e}")
+
+        # 返回空结果
+        logger.warning("AI实体提取失败，返回空结果")
+        return {
+            "entities": {
+                "persons": [],
+                "countries": [],
+                "organizations": [],
+                "time_points": [],
+                "events": [],
+                "concepts": []
+            }
+        }
 
     def _get_default_prompt(self) -> str:
         """获取默认提示词（如果文件不存在）"""
